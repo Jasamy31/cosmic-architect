@@ -4,7 +4,7 @@ A Universe-Building Simulation Game
 
 Cosmic Architect is an interactive simulation game where you take on the role of a celestial engineer, guiding the formation of galaxies by strategically placing and removing gravitational attractors. Observe the mezmerizing dance of particles and strive to create stable cosmic structures before time runs out!
 
-/index.html
+[Play game](https://jasamy31.github.io/cosmic-architect/index.html)
 
 How to Play
 
