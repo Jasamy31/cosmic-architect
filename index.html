@@ -80,6 +80,15 @@
     </style>
 </head>
 <body class="flex flex-col items-center justify-center min-h-screen">
+    <audio id="backgroundMusic" src="sounds/continuous-bass-rumble-336529.mp3" loop preload="auto" volume="1">
+        Your browser does not support the audio element.
+    </audio>
+
+    <div class="volume-control">
+        <span>Volume:</span>
+        <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.2">
+    </div>
+
     <div class="info-panel absolute top-4 left-4 max-w-xs md:max-w-md lg:max-w-lg">
         <h1 class="text-2xl font-bold mb-2 text-white">Cosmic Architect</h1>
         <p class="hidden md:block text-sm text-gray-300">
@@ -191,11 +200,21 @@
         const gameControls = document.getElementById('gameControls'); // Get game controls div
         const entropyValueElement = document.getElementById('entropyValue'); // Entropy display element
 
+        // Audio elements
+        const backgroundMusic = document.getElementById('backgroundMusic');
+        const volumeSlider = document.getElementById('volumeSlider');
+
         // --- Game Functions ---
 
         function startGame() {
             messageScreen.style.display = 'none';
             gameControls.style.display = 'flex'; // Ensure controls are visible
+
+            // Attempt to play background music (will likely require user interaction)
+            backgroundMusic.play().catch(error => {
+                console.log("Autoplay prevented:", error);
+                // Inform user to click somewhere to enable audio, if needed
+            });
 
             // Re-initialize everything for a fresh game
             initThreeJSScene();
@@ -997,6 +1016,15 @@
         window.onload = function() {
             initThreeJSScene();
 
+            // Set initial volume
+            backgroundMusic.volume = volumeSlider.value;
+
+            // Event listener for volume slider
+            volumeSlider.addEventListener('input', () => {
+                backgroundMusic.volume = volumeSlider.value;
+            });
+
+
             placeGalaxyBtn.addEventListener('click', () => {
                 if (isGameActive && cosmicEnergy > 0) {
                     gameMode = 'place';
@@ -1035,6 +1063,15 @@
 
             canvasContainer.addEventListener('click', onCanvasClick, false);
             restartGameBtn.addEventListener('click', startGame);
+
+            // Global click listener to ensure music starts if not already playing (due to autoplay restrictions)
+            document.addEventListener('click', () => {
+                if (backgroundMusic.paused) {
+                    backgroundMusic.play().catch(error => {
+                        console.log("Playback failed on user click:", error);
+                    });
+                }
+            }, { once: true }); // Only run this once            
 
             window.addEventListener('resize', onWindowResize, false);
 
