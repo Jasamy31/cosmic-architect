@@ -80,7 +80,7 @@
     </style>
 </head>
 <body class="flex flex-col items-center justify-center min-h-screen">
-    <audio id="backgroundMusic" src="sounds/sci-fi-drone-engine-loop-40794.mp3" loop preload="auto" volume="1">
+    <audio id="backgroundMusic" src="sounds/continuous-bass-rumble-336529.mp3" loop preload="auto" volume="1">
         Your browser does not support the audio element.
     </audio>
 
@@ -183,6 +183,18 @@
         const blackHoles = []; // Array to store active black hole objects
         let suckedParticleCount = 0; // Counter for particles sucked by black holes
 
+        // Wormhole Parameters (NEW)
+        const wormholeSize = 5; // Visual size of wormhole openings - INCREASED
+        const funnelEntryMultiplier = 1.5; // How much wider the entry funnel is
+        const funnelExitMultiplier = 0.1; // NEW: How much smaller the exit funnel is relative to wormholeSize (made smaller)
+        const wormholeSuckRadius = 10; // Radius around entry where particles are sucked
+        const wormholeSpitForce = 1.0; // Initial velocity applied when spit out - INCREASED
+        const wormholeDuration = 15; // How long a wormhole stays active (seconds)
+        const maxWormholes = 2; // Limit the number of active wormholes
+        const minWormholeLength = 20; // Minimum length of the wormhole (made shorter)
+        const maxWormholeLength = 60; // Maximum length of the wormhole (made shorter)
+        const wormholes = []; // Array to store active wormhole objects
+
         // Raycaster for click interaction
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -228,6 +240,19 @@
             blackHoles.forEach(bh => scene.remove(bh.mesh));
             blackHoles.length = 0;
             suckedParticleCount = 0;
+
+            // Clear existing wormholes (NEW)
+            wormholes.forEach(wh => {
+                scene.remove(wh.group); // Remove the entire group
+                // Dispose geometries and materials for all parts of the wormhole
+                if (wh.entryMesh.geometry) wh.entryMesh.geometry.dispose();
+                if (wh.entryMesh.material) wh.entryMesh.material.dispose();
+                if (wh.exitMesh.geometry) wh.exitMesh.geometry.dispose();
+                if (wh.exitMesh.material) wh.exitMesh.material.dispose();
+                if (wh.gridMesh.geometry) wh.gridMesh.geometry.dispose();
+                if (wh.gridMesh.material) wh.gridMesh.material.dispose();
+            });
+            wormholes.length = 0;
 
             // Reset game state variables
             isGameActive = true;
@@ -300,6 +325,18 @@
             protoGalaxies.length = 0; // Clear array
             blackHoles.forEach(bh => scene.remove(bh.mesh));
             blackHoles.length = 0; // Clear array
+            // Remove all existing wormholes (NEW)
+            wormholes.forEach(wh => {
+                scene.remove(wh.group); // Remove the entire group
+                // Dispose geometries and materials for all parts of the wormhole
+                if (wh.entryMesh.geometry) wh.entryMesh.geometry.dispose();
+                if (wh.entryMesh.material) wh.entryMesh.material.dispose();
+                if (wh.exitMesh.geometry) wh.exitMesh.geometry.dispose();
+                if (wh.exitMesh.material) wh.exitMesh.material.dispose();
+                if (wh.gridMesh.geometry) wh.gridMesh.geometry.dispose();
+                if (wh.gridMesh.material) wh.gridMesh.material.dispose();
+            });
+            wormholes.length = 0;
 
             // Set up a final delay before showing game over message
             setTimeout(() => {
@@ -326,12 +363,14 @@
             const eventTypeRoll = Math.random();
             let action;
 
-            if (eventTypeRoll < 0.4) {
+            if (eventTypeRoll < 0.3) { // 30% chance
                 action = 'add';
-            } else if (eventTypeRoll < 0.8) {
+            } else if (eventTypeRoll < 0.6) { // 30% chance
                 action = 'remove';
-            } else {
+            } else if (eventTypeRoll < 0.8) { // 20% chance
                 action = 'blackhole';
+            } else { // 20% chance
+                action = 'wormhole'; // NEW Wormhole event
             }
 
             const eventPosition = new THREE.Vector3(
@@ -370,7 +409,45 @@
                 });
                 lastCosmicEventValue.textContent = "A Black Hole Formed!";
                 console.log("Cosmic Event: Black hole formed!");
-            } else {
+            } else if (action === 'wormhole' && wormholes.length < maxWormholes) { // NEW Wormhole event logic
+                // Generate two distinct positions for wormhole entry and exit
+                const entryPosition = new THREE.Vector3(
+                    (Math.random() - 0.5) * protoGalaxyInitialSpread * 4,
+                    (Math.random() - 0.5) * protoGalaxyInitialSpread * 4,
+                    (Math.random() - 0.5) * protoGalaxyInitialSpread * 4
+                );
+
+                let exitPosition;
+                let currentLength;
+                do {
+                    exitPosition = new THREE.Vector3(
+                        (Math.random() - 0.5) * protoGalaxyInitialSpread * 4,
+                        (Math.random() - 0.5) * protoGalaxyInitialSpread * 4,
+                        (Math.random() - 0.5) * protoGalaxyInitialSpread * 4
+                    );
+                    currentLength = entryPosition.distanceTo(exitPosition);
+                } while (currentLength < minWormholeLength || currentLength > maxWormholeLength); // Ensure length varies within range
+
+                // Create wormhole visuals (entry, exit, and grid tunnel)
+                const wormholeVisuals = createWormholeVisuals(entryPosition, exitPosition);
+                scene.add(wormholeVisuals.group); // Add the group containing all wormhole parts
+
+                wormholes.push({
+                    entryMesh: wormholeVisuals.entryMesh,
+                    exitMesh: wormholeVisuals.exitMesh,
+                    gridMesh: wormholeVisuals.gridMesh, // Store the grid mesh
+                    entryPosition: entryPosition,
+                    exitPosition: exitPosition,
+                    spawnTime: Date.now(),
+                    suckRadius: wormholeSuckRadius,
+                    spitForce: wormholeSpitForce,
+                    duration: wormholeDuration,
+                    group: wormholeVisuals.group // Store the main group for easy removal
+                });
+                lastCosmicEventValue.textContent = "A Wormhole Opened!";
+                console.log("Cosmic Event: Wormhole opened!");
+            }
+            else {
                 lastCosmicEventValue.textContent = "Cosmic Fluctuation";
             }
         }
@@ -390,7 +467,8 @@
 
             const sizeScale = galaxyMass / (minGalaxyMass + maxGalaxyMassRand);
             const crossArmLength = 2 * sizeScale;
-            const crossArmThickness = 0.2 * sizeScale;
+            // Adjusted thickness for flatter appearance
+            const crossArmThickness = 0.05 * sizeScale; 
 
             const horizontalArm = new THREE.Mesh(
                 new THREE.BoxGeometry(crossArmLength, crossArmThickness, crossArmThickness),
@@ -708,6 +786,115 @@
             scene.add(particles);
         }
 
+        // New function to create wormhole visuals (entry, exit, and grid tunnel)
+        function createWormholeVisuals(entryPos, exitPos) {
+            const wormholeGroup = new THREE.Group();
+
+            // Wormhole material (same for rings and grid)
+            const wormholeMaterial = new THREE.MeshBasicMaterial({ color: 0x8A2BE2, transparent: true, opacity: 0.7, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+            const gridLineMaterial = new THREE.LineBasicMaterial({ color: 0x8A2BE2, transparent: true, opacity: 0.5 });
+
+            const entryRadius = wormholeSize * funnelEntryMultiplier;
+            const exitRadius = wormholeSize * funnelExitMultiplier; // Use the new funnelExitMultiplier
+
+            // Generate a control point for the curve
+            const midPoint = new THREE.Vector3().addVectors(entryPos, exitPos).multiplyScalar(0.5);
+            const direction = new THREE.Vector3().subVectors(exitPos, entryPos).normalize();
+            const perpendicular = new THREE.Vector3(1, 0, 0).cross(direction).normalize(); // Get a perpendicular vector
+            if (perpendicular.lengthSq() === 0) { // If direction is parallel to (1,0,0), pick another axis
+                perpendicular.set(0, 1, 0).cross(direction).normalize();
+            }
+            const curveOffset = (Math.random() - 0.5) * (entryPos.distanceTo(exitPos) * 0.5); // Random offset for curvature
+            const controlPoint = new THREE.Vector3().addVectors(midPoint, perpendicular.multiplyScalar(curveOffset));
+
+            // Create the curved path
+            const curve = new THREE.CatmullRomCurve3([entryPos, controlPoint, exitPos]);
+
+            // Entry Ring
+            const entryGeometry = new THREE.RingGeometry(entryRadius, entryRadius * 1.1, 32);
+            const entryMesh = new THREE.Mesh(entryGeometry, wormholeMaterial);
+            entryMesh.position.copy(entryPos);
+            // Orient entry ring
+            const entryTangent = curve.getTangent(0).normalize();
+            const entryQuaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), entryTangent);
+            entryMesh.quaternion.copy(entryQuaternion);
+            wormholeGroup.add(entryMesh);
+
+            // Exit Ring (smaller)
+            const exitGeometry = new THREE.RingGeometry(exitRadius, exitRadius * 1.1, 32);
+            const exitMesh = new THREE.Mesh(exitGeometry, wormholeMaterial);
+            exitMesh.position.copy(exitPos);
+            // Orient exit ring
+            const exitTangent = curve.getTangent(1).normalize();
+            const exitQuaternion = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), exitTangent);
+            exitMesh.quaternion.copy(exitQuaternion);
+            wormholeGroup.add(exitMesh);
+
+            // Create the grid tunnel along the curve
+            const gridSegments = 15; // More segments for smoother curve
+            const numPointsPerRing = 16; // Resolution of each ring
+            const points = [];
+            const indices = [];
+
+            for (let i = 0; i < gridSegments; i++) {
+                const t = i / (gridSegments - 1); // Interpolation factor (0 to 1)
+                const currentRadius = THREE.MathUtils.lerp(entryRadius, exitRadius, t); // Interpolate radius from entry to exit
+                const currentPosition = curve.getPoint(t); // Get position along the curve
+                const tangent = curve.getTangent(t).normalize(); // Get tangent at this point
+
+                // Calculate perpendicular vectors for ring orientation based on tangent
+                const tempUp = new THREE.Vector3(0, 1, 0);
+                let axisX = new THREE.Vector3().crossVectors(tangent, tempUp).normalize();
+                if (axisX.lengthSq() < 0.001) { // If tangent is nearly parallel to Y, use X-axis as tempUp
+                    axisX.set(1, 0, 0).cross(tangent).normalize();
+                }
+                const axisY = new THREE.Vector3().crossVectors(tangent, axisX).normalize();
+
+                const baseIndex = i * numPointsPerRing;
+
+                for (let j = 0; j < numPointsPerRing; j++) {
+                    const angle = (j / numPointsPerRing) * Math.PI * 2;
+                    const x = currentRadius * Math.cos(angle);
+                    const y = currentRadius * Math.sin(angle);
+
+                    // Rotate points to be perpendicular to the wormhole's direction (tangent)
+                    const rotatedPoint = new THREE.Vector3()
+                        .addScaledVector(axisX, x)
+                        .addScaledVector(axisY, y);
+
+                    const finalPoint = new THREE.Vector3().addVectors(currentPosition, rotatedPoint);
+                    points.push(finalPoint.x, finalPoint.y, finalPoint.z);
+
+                    // Add indices for the current ring (horizontal lines of the grid)
+                    if (j < numPointsPerRing - 1) {
+                        indices.push(baseIndex + j, baseIndex + j + 1);
+                    } else {
+                        indices.push(baseIndex + j, baseIndex); // Close the ring
+                    }
+
+                    // Add indices for longitudinal lines (connecting to previous ring vertically)
+                    if (i > 0) {
+                        const prevBaseIndex = (i - 1) * numPointsPerRing;
+                        indices.push(baseIndex + j, prevBaseIndex + j);
+                    }
+                }
+            }
+
+            const gridGeometry = new THREE.BufferGeometry();
+            gridGeometry.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+            gridGeometry.setIndex(indices);
+
+            const gridMesh = new THREE.LineSegments(gridGeometry, gridLineMaterial);
+            wormholeGroup.add(gridMesh);
+
+            return {
+                group: wormholeGroup,
+                entryMesh: entryMesh,
+                exitMesh: exitMesh,
+                gridMesh: gridMesh
+            };
+        }
+
         // --- Interaction Logic ---
         function onCanvasClick(event) {
             if (!isGameActive) return; // Only allow clicks if game is active
@@ -766,7 +953,7 @@
                     }
                 } else {
                     // messageText.textContent = "No attractors to remove!"; // Removed as per user request
-                    messageScreen.style.display = 'none'; // Hide message as per user request
+                    messageScreen.style.display = 'none'; // Ensure message is hidden
                     restartGameBtn.style.display = 'inline-block'; // Show restart button
                 }
                 gameMode = 'play';
@@ -943,6 +1130,78 @@
             particles.geometry.attributes.sucked.needsUpdate = true;
             particles.geometry.attributes.position.needsUpdate = true;
             particles.geometry.attributes.color.needsUpdate = true;
+
+            // Wormhole physics (sucking and spitting particles) (NEW)
+            for (let i = wormholes.length - 1; i >= 0; i--) {
+                const wh = wormholes[i];
+                if ((currentTime - wh.spawnTime) / 1000 > wh.duration) {
+                    scene.remove(wh.group); // Remove the entire group
+                    // Dispose geometries and materials for all parts of the wormhole
+                    if (wh.entryMesh.geometry) wh.entryMesh.geometry.dispose();
+                    if (wh.entryMesh.material) wh.entryMesh.material.dispose();
+                    if (wh.exitMesh.geometry) wh.exitMesh.geometry.dispose();
+                    if (wh.exitMesh.material) wh.exitMesh.material.dispose();
+                    if (wh.gridMesh.geometry) wh.gridMesh.geometry.dispose();
+                    if (wh.gridMesh.material) wh.gridMesh.material.dispose();
+                    wormholes.splice(i, 1);
+                    console.log("Wormhole closed and removed.");
+                    continue;
+                }
+
+                // No rotation for wormhole meshes as requested
+                // wh.entryMesh.rotation.x += 0.02;
+                // wh.entryMesh.rotation.y += 0.03;
+                // wh.exitMesh.rotation.x -= 0.02;
+                // wh.exitMesh.rotation.y -= 0.03;
+
+                for (let j = 0; j < numParticles; j++) {
+                    const j3 = j * 3;
+                    if (suckedParticles[j]) continue; // Skip particles already processed by black holes
+
+                    const particlePos = new THREE.Vector3(positions[j3], positions[j3 + 1], positions[j3 + 2]);
+                    const distanceToEntry = particlePos.distanceTo(wh.entryPosition);
+
+                    if (distanceToEntry < wh.suckRadius) {
+                        // Pull particle towards entry point
+                        const dx = wh.entryPosition.x - particlePos.x;
+                        const dy = wh.entryPosition.y - particlePos.y;
+                        const dz = wh.entryPosition.z - particlePos.z;
+                        const distanceSq = dx * dx + dy * dy + dz * dz;
+                        const distance = Math.sqrt(distanceSq);
+
+                        if (distance > 0.5) { // Pull until very close to the center of the entry (a small threshold)
+                            const effectiveDistanceSq = distanceSq + softeningFactor;
+                            const forceMagnitude = (gravitationalConstant * 200) / effectiveDistanceSq; // Strong pull
+
+                            const directionX = dx / distance;
+                            const directionY = dy / distance;
+                            const directionZ = dz / distance;
+
+                            velocities[j3] += directionX * forceMagnitude;
+                            velocities[j3 + 1] += directionY * forceMagnitude;
+                            velocities[j3 + 2] += directionZ * forceMagnitude;
+                        } else {
+                            // Particle is at the entry, teleport it to the exit and spit it out
+                            positions[j3] = wh.exitPosition.x;
+                            positions[j3 + 1] = wh.exitPosition.y;
+                            positions[j3 + 2] = wh.exitPosition.z;
+
+                            // Give it an outward velocity from the exit point
+                            const spitDirection = new THREE.Vector3(
+                                Math.random() - 0.5,
+                                Math.random() - 0.5,
+                                Math.random() - 0.5
+                            ).normalize();
+
+                            velocities[j3] = spitDirection.x * wh.spitForce;
+                            velocities[j3 + 1] = spitDirection.y * wh.spitForce;
+                            velocities[j3 + 2] = spitDirection.z * wh.spitForce;
+                        }
+                    }
+                }
+            }
+            particles.geometry.attributes.position.needsUpdate = true;
+            particles.geometry.attributes.velocity.needsUpdate = true;
 
 
             for (let i = 0; i < numParticles; i++) {
