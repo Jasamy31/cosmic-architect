@@ -126,7 +126,9 @@
         let scene, camera, renderer, controls;
         let particles; // Particle system
         let expansionSpeed = 0.05; // Controls how fast particles move outwards
-        const numParticles = 50000; // Number of particles in the simulation
+        const initialNumParticles = 50000; // Initial number of particles in the simulation
+        const maxParticleCapacity = 70000; // Max particles the buffer can hold (for white holes)
+        let currentParticleCount = initialNumParticles; // Current number of active particles
 
         // Game State Variables
         let isGameActive = false;
@@ -195,6 +197,14 @@
         const maxWormholeLength = 60; // Maximum length of the wormhole (made shorter)
         const wormholes = []; // Array to store active wormhole objects
 
+        // White Hole Parameters (NEW)
+        const whiteHoleSize = 4; // Visual size of the white hole
+        const whiteHoleEmitCount = 5000; // Number of particles emitted by a white hole
+        const whiteHoleRepulsionForce = 0.15; // Force pushing particles away from white hole
+        const whiteHoleDuration = 12; // How long a white hole stays active (seconds)
+        const maxWhiteHoles = 2; // Limit the number of active white holes
+        const whiteHoles = []; // Array to store active white hole objects
+
         // Raycaster for click interaction
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
@@ -241,10 +251,9 @@
             blackHoles.length = 0;
             suckedParticleCount = 0;
 
-            // Clear existing wormholes (NEW)
+            // Clear existing wormholes
             wormholes.forEach(wh => {
-                scene.remove(wh.group); // Remove the entire group
-                // Dispose geometries and materials for all parts of the wormhole
+                scene.remove(wh.group);
                 if (wh.entryMesh.geometry) wh.entryMesh.geometry.dispose();
                 if (wh.entryMesh.material) wh.entryMesh.material.dispose();
                 if (wh.exitMesh.geometry) wh.exitMesh.geometry.dispose();
@@ -253,6 +262,15 @@
                 if (wh.gridMesh.material) wh.gridMesh.material.dispose();
             });
             wormholes.length = 0;
+
+            // Clear existing white holes
+            whiteHoles.forEach(wh => {
+                scene.remove(wh.mesh);
+                if(wh.light) scene.remove(wh.light); // Remove the light source too
+                if (wh.mesh.geometry) wh.mesh.geometry.dispose();
+                if (wh.mesh.material) wh.mesh.material.dispose();
+            });
+            whiteHoles.length = 0;
 
             // Reset game state variables
             isGameActive = true;
@@ -263,13 +281,14 @@
             gameMode = 'play';
             cosmicEventCountdown = getRandomCosmicEventInterval();
             lastCosmicEventValue.textContent = "None";
+            currentParticleCount = initialNumParticles; // Reset current particle count
 
             // Update UI
             document.getElementById('timeLeftValue').textContent = timeLeft;
             document.getElementById('cosmicEnergyValue').textContent = cosmicEnergy;
             document.getElementById('galaxiesFormedCount').textContent = galaxiesFormedCount;
             document.getElementById('targetGalaxiesNeeded').textContent = targetGalaxiesNeeded;
-            particleCountElement.textContent = numParticles - suckedParticleCount;
+            particleCountElement.textContent = currentParticleCount - suckedParticleCount;
             document.getElementById('numGalaxiesValue').textContent = protoGalaxies.length;
             document.getElementById('cosmicEventCountdownValue').textContent = cosmicEventCountdown;
             suckedParticleCountElement.textContent = suckedParticleCount;
@@ -320,15 +339,13 @@
             messageText.textContent = "OUT OF TIME";
             restartGameBtn.style.display = 'none'; // Hide play again button temporarily
 
-            // Remove all existing proto-galaxies and black holes from the scene
+            // Remove all existing proto-galaxies, black holes, wormholes, and white holes from the scene
             protoGalaxies.forEach(galaxy => scene.remove(galaxy));
-            protoGalaxies.length = 0; // Clear array
+            protoGalaxies.length = 0;
             blackHoles.forEach(bh => scene.remove(bh.mesh));
-            blackHoles.length = 0; // Clear array
-            // Remove all existing wormholes (NEW)
+            blackHoles.length = 0;
             wormholes.forEach(wh => {
-                scene.remove(wh.group); // Remove the entire group
-                // Dispose geometries and materials for all parts of the wormhole
+                scene.remove(wh.group);
                 if (wh.entryMesh.geometry) wh.entryMesh.geometry.dispose();
                 if (wh.entryMesh.material) wh.entryMesh.material.dispose();
                 if (wh.exitMesh.geometry) wh.exitMesh.geometry.dispose();
@@ -337,6 +354,13 @@
                 if (wh.gridMesh.material) wh.gridMesh.material.dispose();
             });
             wormholes.length = 0;
+            whiteHoles.forEach(wh => {
+                scene.remove(wh.mesh);
+                if(wh.light) scene.remove(wh.light);
+                if (wh.mesh.geometry) wh.mesh.geometry.dispose();
+                if (wh.mesh.material) wh.mesh.material.dispose();
+            });
+            whiteHoles.length = 0;
 
             // Set up a final delay before showing game over message
             setTimeout(() => {
@@ -363,14 +387,16 @@
             const eventTypeRoll = Math.random();
             let action;
 
-            if (eventTypeRoll < 0.3) { // 30% chance
+            if (eventTypeRoll < 0.2) {
                 action = 'add';
-            } else if (eventTypeRoll < 0.6) { // 30% chance
+            } else if (eventTypeRoll < 0.5) {
                 action = 'remove';
-            } else if (eventTypeRoll < 0.8) { // 20% chance
+            } else if (eventTypeRoll < 0.7) {
                 action = 'blackhole';
-            } else { // 20% chance
-                action = 'wormhole'; // NEW Wormhole event
+            } else if (eventTypeRoll < 0.8) {
+                action = 'wormhole';
+            } else { 
+                action = 'whitehole'; // NEW Whitehole event
             }
 
             const eventPosition = new THREE.Vector3(
@@ -380,18 +406,15 @@
             );
 
             if (action === 'add' && protoGalaxies.length < maxActiveGalaxies) {
-                // Use the new function for placing at a specific position
-                placeProtoGalaxyAtPosition(eventPosition, true); // true indicates it's an event-spawned galaxy
+                placeProtoGalaxyAtPosition(eventPosition, true);
                 lastCosmicEventValue.textContent = "New Attractor Appeared!";
 
             } else if (action === 'remove' && protoGalaxies.length > minActiveGalaxies) {
                 const randomIndex = Math.floor(Math.random() * protoGalaxies.length);
                 const galaxyToRemove = protoGalaxies[randomIndex];
-
-                // Use the new function for removing a specific galaxy
-                removeSpecificProtoGalaxy(galaxyToRemove, true); // true indicates it's an event-removed galaxy
+                removeSpecificProtoGalaxy(galaxyToRemove, true);
                 lastCosmicEventValue.textContent = "A Galaxy Vanished!";
-                cosmicEnergy++; // Grant cosmic energy for removed galaxy
+                cosmicEnergy++;
                 document.getElementById('cosmicEnergyValue').textContent = cosmicEnergy;
 
             } else if (action === 'blackhole' && blackHoles.length < maxBlackHoles) {
@@ -409,14 +432,12 @@
                 });
                 lastCosmicEventValue.textContent = "A Black Hole Formed!";
                 console.log("Cosmic Event: Black hole formed!");
-            } else if (action === 'wormhole' && wormholes.length < maxWormholes) { // NEW Wormhole event logic
-                // Generate two distinct positions for wormhole entry and exit
+            } else if (action === 'wormhole' && wormholes.length < maxWormholes) {
                 const entryPosition = new THREE.Vector3(
                     (Math.random() - 0.5) * protoGalaxyInitialSpread * 4,
                     (Math.random() - 0.5) * protoGalaxyInitialSpread * 4,
                     (Math.random() - 0.5) * protoGalaxyInitialSpread * 4
                 );
-
                 let exitPosition;
                 let currentLength;
                 do {
@@ -426,26 +447,29 @@
                         (Math.random() - 0.5) * protoGalaxyInitialSpread * 4
                     );
                     currentLength = entryPosition.distanceTo(exitPosition);
-                } while (currentLength < minWormholeLength || currentLength > maxWormholeLength); // Ensure length varies within range
+                } while (currentLength < minWormholeLength || currentLength > maxWormholeLength);
 
-                // Create wormhole visuals (entry, exit, and grid tunnel)
                 const wormholeVisuals = createWormholeVisuals(entryPosition, exitPosition);
-                scene.add(wormholeVisuals.group); // Add the group containing all wormhole parts
+                scene.add(wormholeVisuals.group);
 
                 wormholes.push({
                     entryMesh: wormholeVisuals.entryMesh,
                     exitMesh: wormholeVisuals.exitMesh,
-                    gridMesh: wormholeVisuals.gridMesh, // Store the grid mesh
+                    gridMesh: wormholeVisuals.gridMesh,
                     entryPosition: entryPosition,
                     exitPosition: exitPosition,
                     spawnTime: Date.now(),
                     suckRadius: wormholeSuckRadius,
                     spitForce: wormholeSpitForce,
                     duration: wormholeDuration,
-                    group: wormholeVisuals.group // Store the main group for easy removal
+                    group: wormholeVisuals.group
                 });
                 lastCosmicEventValue.textContent = "A Wormhole Opened!";
                 console.log("Cosmic Event: Wormhole opened!");
+            } else if (action === 'whitehole' && whiteHoles.length < maxWhiteHoles) { // NEW White hole event logic
+                addWhiteHole(eventPosition);
+                lastCosmicEventValue.textContent = "A White Hole Erupted!";
+                console.log("Cosmic Event: White hole erupted!");
             }
             else {
                 lastCosmicEventValue.textContent = "Cosmic Fluctuation";
@@ -498,11 +522,6 @@
             scene.add(protoGalaxyGroup);
             protoGalaxies.push(protoGalaxyGroup);
             document.getElementById('numGalaxiesValue').textContent = protoGalaxies.length;
-
-            // Only hide message if it's a player action, not an event
-            if (!isEventSpawned) {
-                // messageScreen.style.display = 'none'; // Removed as per user request
-            }
         }
 
         /**
@@ -537,8 +556,11 @@
             const positions = particles.geometry.attributes.position.array;
             const velocities = particles.geometry.attributes.velocity.array;
 
-            for (let i = 0; i < numParticles; i++) {
+            for (let i = 0; i < currentParticleCount; i++) {
                 const i3 = i * 3;
+                // Skip sucked particles
+                if (particles.geometry.attributes.sucked.array[i]) continue;
+
                 const particlePos = new THREE.Vector3(positions[i3], positions[i3 + 1], positions[i3 + 2]);
 
                 const dx = particlePos.x - galaxyPosition.x;
@@ -573,11 +595,6 @@
                 }
             }
             particles.geometry.attributes.velocity.needsUpdate = true;
-
-            // Only hide message if it's a player action, not an event
-            if (!isEventRemoved) {
-                // messageScreen.style.display = 'none'; // Removed as per user request
-            }
         }
 
         // Function to measure entropy based on particle distribution
@@ -589,25 +606,24 @@
             const suckedParticles = particles.geometry.attributes.sucked.array;
 
             let totalSquaredDistance = 0;
-            let activeParticleCount = 0;
-            const origin = new THREE.Vector3(0, 0, 0); // Center of the system
+            let activeParticleCountForEntropy = 0; // Use a distinct count for entropy calculation
 
-            for (let i = 0; i < numParticles; i++) {
+            for (let i = 0; i < currentParticleCount; i++) { // Iterate only through currently active particles
                 if (!suckedParticles[i]) { // Only consider active, non-sucked particles
                     const i3 = i * 3;
                     const x = positions[i3];
                     const y = positions[i3 + 1];
                     const z = positions[i3 + 2];
                     totalSquaredDistance += (x * x + y * y + z * z); // Squared distance from origin
-                    activeParticleCount++;
+                    activeParticleCountForEntropy++;
                 }
             }
 
-            if (activeParticleCount === 0) {
+            if (activeParticleCountForEntropy === 0) {
                 return 0; // If no active particles, entropy is considered 0 (all ordered to center or removed)
             }
 
-            return totalSquaredDistance / activeParticleCount; // Average squared distance
+            return totalSquaredDistance / activeParticleCountForEntropy; // Average squared distance
         }
 
         // Function to update the entropy display in the UI
@@ -624,7 +640,7 @@
 
             protoGalaxies.forEach(galaxy => {
                 let particlesInInfluence = 0; // Reset for each galaxy
-                for (let i = 0; i < numParticles; i++) {
+                for (let i = 0; i < currentParticleCount; i++) { // Iterate over current active particles
                     const i3 = i * 3;
                     if (particles.geometry.attributes.sucked && particles.geometry.attributes.sucked.array[i]) {
                         continue;
@@ -680,7 +696,6 @@
             }
             messageScreen.style.display = 'flex';
             restartGameBtn.style.display = 'inline-block'; // Show play again button
-            // resetButtonStates(); // Reset button states after action
         }
 
         // --- Three.js Initialization ---
@@ -691,8 +706,16 @@
             if (scene) {
                 // Dispose of old objects if restarting
                 scene.children.forEach(child => {
-                    if (child.geometry) child.geometry.dispose();
-                    if (child.material) child.material.dispose();
+                    // Check if child has a dispose method (e.g., for geometries/materials)
+                    if (child.geometry && child.geometry.dispose) child.geometry.dispose();
+                    if (child.material && child.material.dispose) child.material.dispose();
+                    // For groups, iterate children and dispose
+                    if (child.children) {
+                        child.children.forEach(grandchild => {
+                            if (grandchild.geometry && grandchild.geometry.dispose) grandchild.geometry.dispose();
+                            if (grandchild.material && grandchild.material.dispose) grandchild.material.dispose();
+                        });
+                    }
                     scene.remove(child);
                 });
             }
@@ -736,14 +759,15 @@
             }
 
             const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(numParticles * 3);
-            const velocities = new Float32Array(numParticles * 3);
-            const colors = new Float32Array(numParticles * 3);
-            const sucked = new Uint8Array(numParticles);
+            // Allocate space for maxParticleCapacity, but only fill initialNumParticles
+            const positions = new Float32Array(maxParticleCapacity * 3);
+            const velocities = new Float32Array(maxParticleCapacity * 3);
+            const colors = new Float32Array(maxParticleCapacity * 3);
+            const sucked = new Uint8Array(maxParticleCapacity); // 0 = not sucked, 1 = sucked/inactive
 
             const singularityRadius = 0.01;
 
-            for (let i = 0; i < numParticles; i++) {
+            for (let i = 0; i < initialNumParticles; i++) {
                 const i3 = i * 3;
 
                 positions[i3] = (Math.random() - 0.5) * singularityRadius;
@@ -766,7 +790,20 @@
                 colors[i3 + 1] = Math.random();
                 colors[i3 + 2] = Math.random();
 
-                sucked[i] = 0;
+                sucked[i] = 0; // Initially not sucked
+            }
+
+            // For the remaining capacity, initialize them as "sucked" or inactive
+            for (let i = initialNumParticles; i < maxParticleCapacity; i++) {
+                const i3 = i * 3;
+                positions[i3] = 100000; // Place far away
+                positions[i3 + 1] = 100000;
+                positions[i3 + 2] = 100000;
+                velocities[i3] = 0;
+                velocities[i3 + 1] = 0;
+                velocities[i3 + 2] = 0;
+                colors[i3] = 0; colors[i3+1] = 0; colors[i3+2] = 0;
+                sucked[i] = 1; // Mark as inactive/sucked
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -895,6 +932,95 @@
             };
         }
 
+        /**
+         * Adds a new white hole to the simulation at the given position.
+         * @param {THREE.Vector3} position The 3D coordinates where the white hole will be placed.
+         */
+        function addWhiteHole(position) {
+            const whiteHoleMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending });
+            const whiteHoleGeometry = new THREE.SphereGeometry(whiteHoleSize, 16, 16);
+            const whiteHoleMesh = new THREE.Mesh(whiteHoleGeometry, whiteHoleMaterial);
+            whiteHoleMesh.position.copy(position);
+            scene.add(whiteHoleMesh);
+
+            // Add a point light to make it glow
+            const whiteHoleLight = new THREE.PointLight(0xffffff, 1, 50); // Color, intensity, distance
+            whiteHoleLight.position.copy(position);
+            scene.add(whiteHoleLight);
+
+            whiteHoles.push({
+                mesh: whiteHoleMesh,
+                light: whiteHoleLight,
+                position: position,
+                spawnTime: Date.now(),
+                emitCounter: 0, // Counter to track how many particles it has emitted
+                lastEmitTime: Date.now()
+            });
+        }
+
+        /**
+         * Emits new particles from a given white hole.
+         * Particles are added to the existing particle buffer if capacity allows.
+         * @param {object} whiteHole The white hole object.
+         */
+        function emitParticlesFromWhiteHole(whiteHole) {
+            const positions = particles.geometry.attributes.position.array;
+            const velocities = particles.geometry.attributes.velocity.array;
+            const colors = particles.geometry.attributes.color.array;
+            const sucked = particles.geometry.attributes.sucked.array;
+
+            const emitStartCount = currentParticleCount;
+            let particlesToEmit = whiteHoleEmitCount;
+
+            // Ensure we don't exceed maxParticleCapacity
+            if (emitStartCount + particlesToEmit > maxParticleCapacity) {
+                particlesToEmit = maxParticleCapacity - emitStartCount;
+            }
+
+            if (particlesToEmit <= 0) return; // No space or nothing to emit
+
+            for (let i = 0; i < particlesToEmit; i++) {
+                const particleIndex = emitStartCount + i;
+                const i3 = particleIndex * 3;
+
+                // Position new particle at white hole's location
+                positions[i3] = whiteHole.position.x;
+                positions[i3 + 1] = whiteHole.position.y;
+                positions[i3 + 2] = whiteHole.position.z;
+
+                // Give it an outward velocity
+                const direction = new THREE.Vector3(
+                    Math.random() - 0.5,
+                    Math.random() - 0.5,
+                    Math.random() - 0.5
+                ).normalize();
+                const initialSpeed = Math.min(Math.random() * 0.5 + 0.1, speedOfLight);
+
+                velocities[i3] = direction.x * initialSpeed;
+                velocities[i3 + 1] = direction.y * initialSpeed;
+                velocities[i3 + 2] = direction.z * initialSpeed;
+
+                // Random color for new particles
+                colors[i3] = Math.random();
+                colors[i3 + 1] = Math.random();
+                colors[i3 + 2] = Math.random();
+
+                sucked[particleIndex] = 0; // Mark as active
+            }
+
+            currentParticleCount += particlesToEmit;
+            whiteHole.emitCounter += particlesToEmit; // Track emitted particles by this white hole
+
+            particles.geometry.attributes.position.needsUpdate = true;
+            particles.geometry.attributes.velocity.needsUpdate = true;
+            particles.geometry.attributes.color.needsUpdate = true;
+            particles.geometry.attributes.sucked.needsUpdate = true;
+
+            particleCountElement.textContent = currentParticleCount - suckedParticleCount;
+            console.log(`White hole emitted ${particlesToEmit} particles. Total active: ${currentParticleCount}`);
+        }
+
+
         // --- Interaction Logic ---
         function onCanvasClick(event) {
             if (!isGameActive) return; // Only allow clicks if game is active
@@ -917,11 +1043,6 @@
                     placeProtoGalaxyAtPosition(clickPosition);
                     cosmicEnergy--;
                     document.getElementById('cosmicEnergyValue').textContent = cosmicEnergy;
-                    messageScreen.style.display = 'none'; // Hide message after placement
-                } else {
-                    // messageText.textContent = "Not enough Cosmic Energy to place an attractor!"; // Removed as per user request
-                    messageScreen.style.display = 'none'; // Hide message as per user request
-                    restartGameBtn.style.display = 'inline-block'; // Show restart button
                 }
                 gameMode = 'play';
                 controls.enabled = true; // Re-enable orbit controls
@@ -945,22 +1066,12 @@
                         removeSpecificProtoGalaxy(closestGalaxy);
                         cosmicEnergy++; // Refund energy for removing
                         document.getElementById('cosmicEnergyValue').textContent = cosmicEnergy;
-                        messageScreen.style.display = 'none'; // Hide message after removal
-                    } else {
-                        // messageText.textContent = "No attractor found close enough to the clicked point. Try again!"; // Removed as per user request
-                        messageScreen.style.display = 'none'; // Hide message as per user request
-                        restartGameBtn.style.display = 'none'; // Keep restart button hidden
                     }
-                } else {
-                    // messageText.textContent = "No attractors to remove!"; // Removed as per user request
-                    messageScreen.style.display = 'none'; // Ensure message is hidden
-                    restartGameBtn.style.display = 'inline-block'; // Show restart button
                 }
                 gameMode = 'play';
                 controls.enabled = true; // Re-enable orbit controls
                 resetButtonStates(); // Reset button states after action
             } else { // gameMode === 'play'
-                // If in play mode, just ensure controls are enabled (already done by the event listener setup)
                 controls.enabled = true;
             }
         }
@@ -996,7 +1107,7 @@
                 const colors = particles.geometry.attributes.color.array;
                 const suckedParticles = particles.geometry.attributes.sucked.array;
 
-                for (let i = 0; i < numParticles; i++) {
+                for (let i = 0; i < currentParticleCount; i++) { // Iterate over current active particles
                     const i3 = i * 3;
 
                     if (suckedParticles[i]) continue; // Skip particles already sucked
@@ -1014,6 +1125,8 @@
                     if (distance < crunchParticleThreshold) {
                         // Particle has effectively crunched, hide it
                         suckedParticles[i] = 1;
+                        suckedParticleCount++; // Count for crunch too
+                        currentParticleCount--; // Particles effectively removed from active count
                         positions[i3] = 100000; // Move far away
                         positions[i3 + 1] = 100000;
                         positions[i3 + 2] = 100000;
@@ -1053,6 +1166,8 @@
                 particles.geometry.attributes.position.needsUpdate = true;
                 particles.geometry.attributes.sucked.needsUpdate = true;
                 particles.geometry.attributes.color.needsUpdate = true;
+                suckedParticleCountElement.textContent = suckedParticleCount; // Update UI during crunch
+                particleCountElement.textContent = currentParticleCount - suckedParticleCount;
 
                 return; // Skip the rest of the game physics during big crunch
             }
@@ -1087,7 +1202,7 @@
                     continue;
                 }
 
-                for (let j = 0; j < numParticles; j++) {
+                for (let j = 0; j < currentParticleCount; j++) { // Iterate over current active particles
                     const j3 = j * 3;
                     if (suckedParticles[j]) continue;
 
@@ -1117,9 +1232,7 @@
                     if (distance < bh.suckRadius) {
                         suckedParticles[j] = 1;
                         suckedParticleCount++;
-                        suckedParticleCountElement.textContent = suckedParticleCount;
-                        particleCountElement.textContent = numParticles - suckedParticleCount;
-
+                        currentParticleCount--; // Particle is now inactive/sucked
                         positions[j3] = 100000;
                         positions[j3 + 1] = 100000;
                         positions[j3 + 2] = 100000;
@@ -1130,13 +1243,14 @@
             particles.geometry.attributes.sucked.needsUpdate = true;
             particles.geometry.attributes.position.needsUpdate = true;
             particles.geometry.attributes.color.needsUpdate = true;
+            suckedParticleCountElement.textContent = suckedParticleCount;
+            particleCountElement.textContent = currentParticleCount - suckedParticleCount;
 
-            // Wormhole physics (sucking and spitting particles) (NEW)
+            // Wormhole physics (sucking and spitting particles)
             for (let i = wormholes.length - 1; i >= 0; i--) {
                 const wh = wormholes[i];
                 if ((currentTime - wh.spawnTime) / 1000 > wh.duration) {
-                    scene.remove(wh.group); // Remove the entire group
-                    // Dispose geometries and materials for all parts of the wormhole
+                    scene.remove(wh.group);
                     if (wh.entryMesh.geometry) wh.entryMesh.geometry.dispose();
                     if (wh.entryMesh.material) wh.entryMesh.material.dispose();
                     if (wh.exitMesh.geometry) wh.exitMesh.geometry.dispose();
@@ -1148,15 +1262,9 @@
                     continue;
                 }
 
-                // No rotation for wormhole meshes as requested
-                // wh.entryMesh.rotation.x += 0.02;
-                // wh.entryMesh.rotation.y += 0.03;
-                // wh.exitMesh.rotation.x -= 0.02;
-                // wh.exitMesh.rotation.y -= 0.03;
-
-                for (let j = 0; j < numParticles; j++) {
+                for (let j = 0; j < currentParticleCount; j++) { // Iterate over current active particles
                     const j3 = j * 3;
-                    if (suckedParticles[j]) continue; // Skip particles already processed by black holes
+                    if (suckedParticles[j]) continue;
 
                     const particlePos = new THREE.Vector3(positions[j3], positions[j3 + 1], positions[j3 + 2]);
                     const distanceToEntry = particlePos.distanceTo(wh.entryPosition);
@@ -1169,9 +1277,9 @@
                         const distanceSq = dx * dx + dy * dy + dz * dz;
                         const distance = Math.sqrt(distanceSq);
 
-                        if (distance > 0.5) { // Pull until very close to the center of the entry (a small threshold)
+                        if (distance > 0.5) {
                             const effectiveDistanceSq = distanceSq + softeningFactor;
-                            const forceMagnitude = (gravitationalConstant * 200) / effectiveDistanceSq; // Strong pull
+                            const forceMagnitude = (gravitationalConstant * 200) / effectiveDistanceSq;
 
                             const directionX = dx / distance;
                             const directionY = dy / distance;
@@ -1203,8 +1311,56 @@
             particles.geometry.attributes.position.needsUpdate = true;
             particles.geometry.attributes.velocity.needsUpdate = true;
 
+            // White Hole physics (emitting and repelling particles) (NEW)
+            for (let i = whiteHoles.length - 1; i >= 0; i--) {
+                const wh = whiteHoles[i];
+                if ((currentTime - wh.spawnTime) / 1000 > whiteHoleDuration) {
+                    scene.remove(wh.mesh);
+                    if(wh.light) scene.remove(wh.light);
+                    if (wh.mesh.geometry) wh.mesh.geometry.dispose();
+                    if (wh.mesh.material) wh.mesh.material.dispose();
+                    whiteHoles.splice(i, 1);
+                    console.log("White hole expired and removed.");
+                    continue;
+                }
 
-            for (let i = 0; i < numParticles; i++) {
+                // Emit particles periodically
+                if ((currentTime - wh.lastEmitTime) / 1000 > 0.5 && currentParticleCount < maxParticleCapacity) { // Emit every 0.5 seconds
+                    emitParticlesFromWhiteHole(wh);
+                    wh.lastEmitTime = currentTime;
+                }
+
+                // Apply repulsive force to nearby particles
+                for (let j = 0; j < currentParticleCount; j++) { // Iterate over current active particles
+                    const j3 = j * 3;
+                    if (suckedParticles[j]) continue;
+
+                    const particlePos = new THREE.Vector3(positions[j3], positions[j3 + 1], positions[j3 + 2]);
+                    const distance = particlePos.distanceTo(wh.position);
+
+                    if (distance > 0 && distance < whiteHoleSize * 5) { // Apply repulsion within a certain range
+                        const dx = particlePos.x - wh.position.x;
+                        const dy = particlePos.y - wh.position.y;
+                        const dz = particlePos.z - wh.position.z;
+                        const distanceSq = dx * dx + dy * dy + dz * dz;
+                        const effectiveDistanceSq = distanceSq + softeningFactor; // Softening for smoother force
+
+                        const forceMagnitude = (whiteHoleRepulsionForce / effectiveDistanceSq) * 10; // Stronger repulsion
+
+                        const directionX = dx / distance;
+                        const directionY = dy / distance;
+                        const directionZ = dz / distance;
+
+                        velocities[j3] += directionX * forceMagnitude;
+                        velocities[j3 + 1] += directionY * forceMagnitude;
+                        velocities[j3 + 2] += directionZ * forceMagnitude;
+                    }
+                }
+            }
+            particles.geometry.attributes.velocity.needsUpdate = true;
+
+
+            for (let i = 0; i < currentParticleCount; i++) { // Iterate over current active particles
                 const i3 = i * 3;
 
                 if (suckedParticles[i]) continue;
@@ -1288,17 +1444,10 @@
                 if (isGameActive && cosmicEnergy > 0) {
                     gameMode = 'place';
                     controls.enabled = false; // Disable orbit controls when in placement mode
-                    // messageText.textContent = "Click on the simulation to place an attractor."; // Removed
-                    messageScreen.style.display = 'none'; // Ensure message is hidden
-                    restartGameBtn.style.display = 'none'; // Hide restart button
-                    placeGalaxyBtn.textContent = "Place";
-                    placeGalaxyBtn.classList.add('active-place');
                     removeGalaxyBtn.textContent = "Remove Attractor"; // Ensure other button is reset
                     removeGalaxyBtn.classList.remove('active-remove'); // Ensure other button is reset
-                } else if (isGameActive) {
-                    // messageText.textContent = "Not enough Cosmic Energy to place an attractor!"; // Removed
-                    messageScreen.style.display = 'none'; // Ensure message is hidden
-                    restartGameBtn.style.display = 'inline-block'; // Show restart button
+                    placeGalaxyBtn.textContent = "Place";
+                    placeGalaxyBtn.classList.add('active-place');
                 }
             });
 
@@ -1306,17 +1455,10 @@
                 if (isGameActive && protoGalaxies.length > 0) {
                     gameMode = 'remove';
                     controls.enabled = false; // Disable orbit controls when in removal mode
-                    // messageText.textContent = "Click on an attractor to remove it."; // Removed
-                    messageScreen.style.display = 'none'; // Ensure message is hidden
-                    restartGameBtn.style.display = 'none'; // Hide restart button
-                    removeGalaxyBtn.textContent = "Remove";
-                    removeGalaxyBtn.classList.add('active-remove');
                     placeGalaxyBtn.textContent = "Place Attractor"; // Ensure other button is reset
                     placeGalaxyBtn.classList.remove('active-place'); // Ensure other button is reset
-                } else if (isGameActive) {
-                    // messageText.textContent = "No attractors to remove!"; // Removed
-                    messageScreen.style.display = 'none'; // Ensure message is hidden
-                    restartGameBtn.style.display = 'inline-block'; // Show restart button
+                    removeGalaxyBtn.textContent = "Remove";
+                    removeGalaxyBtn.classList.add('active-remove');
                 }
             });
 
